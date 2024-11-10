@@ -11,12 +11,15 @@ import {
   applyEdgeChanges,
 } from 'reactflow';
 
-interface DiagramState {
+interface DiagramData {
   leftNodes: Node[];
   rightNodes: Node[];
   leftEdges: Edge[];
   rightEdges: Edge[];
   nodeRelations: Record<string, string[]>;
+}
+
+interface DiagramState extends DiagramData {
   highlightedNodes: string[];
   currentDiagramName: string;
   savedDiagrams: Array<{ id: string; name: string }>;
@@ -35,9 +38,11 @@ interface DiagramState {
   loadAllDiagrams: () => Promise<void>;
   deleteDiagram: (id: string) => Promise<void>;
   clearError: () => void;
+  exportDiagram: () => DiagramData;
+  importDiagram: (data: DiagramData) => void;
 }
 
-const initialState = {
+const initialState: DiagramData = {
   leftNodes: [
     {
       id: 'l1',
@@ -74,17 +79,17 @@ const initialState = {
     r1: ['l1'],
     r2: ['l2'],
   },
-  highlightedNodes: [],
-  currentDiagramName: 'Untitled Diagram',
-  savedDiagrams: [],
-  isLoading: false,
-  error: null,
 };
 
 export const useDiagramStore = create<DiagramState>()(
   persist(
     (set, get) => ({
       ...initialState,
+      highlightedNodes: [],
+      currentDiagramName: 'Untitled Diagram',
+      savedDiagrams: [],
+      isLoading: false,
+      error: null,
 
       onNodesChange: (changes, isLeftDiagram) => {
         set({
@@ -189,18 +194,20 @@ export const useDiagramStore = create<DiagramState>()(
         set({ isLoading: true, error: null });
         try {
           const state = get();
+          const diagramData: DiagramData = {
+            leftNodes: state.leftNodes,
+            rightNodes: state.rightNodes,
+            leftEdges: state.leftEdges,
+            rightEdges: state.rightEdges,
+            nodeRelations: state.nodeRelations,
+          };
+
           const response = await fetch('/api/diagrams', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               name,
-              data: {
-                leftNodes: state.leftNodes,
-                rightNodes: state.rightNodes,
-                leftEdges: state.leftEdges,
-                rightEdges: state.rightEdges,
-                nodeRelations: state.nodeRelations,
-              },
+              data: diagramData,
             }),
           });
 
@@ -251,8 +258,8 @@ export const useDiagramStore = create<DiagramState>()(
           const diagrams = await response.json();
           set({ savedDiagrams: diagrams });
         } catch (error) {
-          set({ error: 'Failed to load diagrams' });
-          throw error;
+          console.error('Failed to load diagrams:', error);
+          set({ error: 'Failed to load diagrams', savedDiagrams: [] });
         } finally {
           set({ isLoading: false });
         }
@@ -277,6 +284,25 @@ export const useDiagramStore = create<DiagramState>()(
       },
 
       clearError: () => set({ error: null }),
+
+      exportDiagram: () => {
+        const state = get();
+        return {
+          leftNodes: state.leftNodes,
+          rightNodes: state.rightNodes,
+          leftEdges: state.leftEdges,
+          rightEdges: state.rightEdges,
+          nodeRelations: state.nodeRelations,
+        };
+      },
+
+      importDiagram: (data: DiagramData) => {
+        set({
+          ...data,
+          highlightedNodes: [],
+          currentDiagramName: 'Imported Diagram',
+        });
+      },
     }),
     {
       name: 'diagram-storage',

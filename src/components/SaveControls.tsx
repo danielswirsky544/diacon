@@ -10,44 +10,99 @@ export default function SaveControls() {
     loadAllDiagrams,
     savedDiagrams,
     currentDiagramName,
-    isLoading
+    isLoading,
+    error
   } = useDiagramStore();
 
   const [showLibrary, setShowLibrary] = useState(false);
+  const [diagramName, setDiagramName] = useState('');
   const [shareUrl, setShareUrl] = useState('');
 
   useEffect(() => {
-    loadAllDiagrams();
+    const loadDiagrams = async () => {
+      try {
+        await loadAllDiagrams();
+      } catch (error) {
+        console.error('Failed to load diagrams:', error);
+      }
+    };
+    loadDiagrams();
   }, [loadAllDiagrams]);
 
   const handleSave = async () => {
-    const name = prompt('Enter a name for your diagram:', currentDiagramName);
+    const name = prompt('Enter a name for your diagram:', diagramName);
     if (name) {
       try {
-        await saveDiagram(name);
-        // Update URL with diagram ID
-        const currentDiagram = savedDiagrams.find(d => d.name === name);
-        if (currentDiagram) {
-          const url = new URL(window.location.href);
-          url.searchParams.set('diagram', currentDiagram.id);
-          window.history.pushState({}, '', url);
-        }
+        const id = await saveDiagram(name);
+        setDiagramName(name);
+        const url = new URL(window.location.href);
+        url.searchParams.set('diagram', id);
+        window.history.pushState({}, '', url);
       } catch (error) {
-        alert('Failed to save diagram. Please try again.');
+        console.error('Failed to save diagram:', error);
       }
     }
   };
 
   const handleShare = () => {
-    const currentDiagram = savedDiagrams.find(d => d.name === currentDiagramName);
-    if (!currentDiagram) {
+    const url = new URL(window.location.href);
+    const diagramId = url.searchParams.get('diagram');
+    if (!diagramId) {
       alert('Please save the diagram first');
       return;
     }
-    const url = new URL(window.location.href);
-    url.searchParams.set('diagram', currentDiagram.id);
     setShareUrl(url.toString());
   };
+
+  const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const content = e.target?.result as string;
+          const name = prompt('Enter a name for the imported diagram:');
+          if (name) {
+            await saveDiagram(name);
+          }
+        } catch (error) {
+          console.error('Failed to import diagram:', error);
+        }
+      };
+      reader.readAsText(file);
+    }
+  };
+
+  const handleExport = () => {
+    const data = {
+      name: currentDiagramName,
+      data: {
+        leftNodes: useDiagramStore.getState().leftNodes,
+        rightNodes: useDiagramStore.getState().rightNodes,
+        leftEdges: useDiagramStore.getState().leftEdges,
+        rightEdges: useDiagramStore.getState().rightEdges,
+        nodeRelations: useDiagramStore.getState().nodeRelations,
+      },
+    };
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${currentDiagramName || 'diagram'}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  if (error) {
+    return (
+      <div className="text-red-500 p-4">
+        Error: {error}
+      </div>
+    );
+  }
 
   return (
     <div className="relative">
@@ -55,7 +110,7 @@ export default function SaveControls() {
         <button
           onClick={() => setShowLibrary(prev => !prev)}
           className="flex items-center gap-2 px-3 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors"
-          title="Open Library"
+          disabled={isLoading}
         >
           <Library className="w-4 h-4" />
           Library
@@ -63,7 +118,6 @@ export default function SaveControls() {
         <button
           onClick={handleSave}
           className="flex items-center gap-2 px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
-          title="Save Diagram"
           disabled={isLoading}
         >
           <Save className="w-4 h-4" />
@@ -72,15 +126,32 @@ export default function SaveControls() {
         <button
           onClick={handleShare}
           className="flex items-center gap-2 px-3 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors"
-          title="Share Diagram"
           disabled={isLoading}
         >
           <Share2 className="w-4 h-4" />
           Share
         </button>
+        <button
+          onClick={handleExport}
+          className="flex items-center gap-2 px-3 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors"
+          disabled={isLoading}
+        >
+          <Download className="w-4 h-4" />
+          Export
+        </button>
+        <label className="flex items-center gap-2 px-3 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 transition-colors cursor-pointer">
+          <Upload className="w-4 h-4" />
+          Import
+          <input
+            type="file"
+            accept=".json"
+            className="hidden"
+            onChange={handleImport}
+            disabled={isLoading}
+          />
+        </label>
       </div>
 
-      {/* Library Panel */}
       {showLibrary && (
         <div className="absolute right-0 top-12 w-80 bg-white rounded-lg shadow-xl p-4 z-50">
           <div className="flex justify-between items-center mb-4">
@@ -96,12 +167,12 @@ export default function SaveControls() {
           <div className="space-y-2">
             <button
               onClick={() => {
-                const url = new URL(window.location.href);
-                url.searchParams.delete('diagram');
-                window.history.pushState({}, '', url);
-                window.location.reload();
+                setDiagramName('');
+                useDiagramStore.setState(initialState);
+                setShowLibrary(false);
               }}
               className="w-full flex items-center gap-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+              disabled={isLoading}
             >
               <Plus className="w-4 h-4" />
               New Diagram
@@ -125,13 +196,13 @@ export default function SaveControls() {
                       onClick={async () => {
                         try {
                           await loadDiagram(diagram.id);
+                          setDiagramName(diagram.name);
                           setShowLibrary(false);
-                          // Update URL
                           const url = new URL(window.location.href);
                           url.searchParams.set('diagram', diagram.id);
                           window.history.pushState({}, '', url);
                         } catch (error) {
-                          alert('Failed to load diagram. Please try again.');
+                          console.error('Failed to load diagram:', error);
                         }
                       }}
                       className="text-blue-500 hover:text-blue-700"
@@ -145,7 +216,7 @@ export default function SaveControls() {
                           try {
                             await deleteDiagram(diagram.id);
                           } catch (error) {
-                            alert('Failed to delete diagram. Please try again.');
+                            console.error('Failed to delete diagram:', error);
                           }
                         }
                       }}
@@ -162,7 +233,6 @@ export default function SaveControls() {
         </div>
       )}
 
-      {/* Share URL Dialog */}
       {shareUrl && (
         <div className="absolute right-0 top-12 w-96 bg-white rounded-lg shadow-xl p-4 z-50">
           <div className="flex justify-between items-center mb-4">
