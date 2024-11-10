@@ -11,7 +11,7 @@ interface EdgeControlsProps {
 
 export default function EdgeControls({ edge, isLeftDiagram, onClose }: EdgeControlsProps) {
   const { getNode } = useReactFlow();
-  const { deleteEdge } = useDiagramStore();
+  const { onEdgesChange } = useDiagramStore();
 
   const sourceNode = getNode(edge.source);
   const targetNode = getNode(edge.target);
@@ -25,7 +25,7 @@ export default function EdgeControls({ edge, isLeftDiagram, onClose }: EdgeContr
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (window.confirm('Are you sure you want to delete this connection?')) {
-      deleteEdge(edge.id, isLeftDiagram);
+      onEdgesChange([{ id: edge.id, type: 'remove' }], isLeftDiagram);
       onClose();
     }
   };
