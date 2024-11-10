@@ -10,6 +10,21 @@ export const handler = async (event, context) => {
     const { httpMethod: method, queryStringParameters: query, body } = event;
     const parsedBody = body ? JSON.parse(body) : null;
 
+    const headers = {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS'
+    };
+
+    // Handle OPTIONS request for CORS
+    if (method === 'OPTIONS') {
+      return {
+        statusCode: 204,
+        headers
+      };
+    }
+
     switch (method) {
       case 'GET':
         if (query?.id) {
@@ -17,12 +32,14 @@ export const handler = async (event, context) => {
           if (result.rows.length === 0) {
             return {
               statusCode: 404,
+              headers,
               body: JSON.stringify({ error: 'Diagram not found' })
             };
           }
           const row = result.rows[0];
           return {
             statusCode: 200,
+            headers,
             body: JSON.stringify({
               id: row.id,
               name: row.name,
@@ -35,6 +52,7 @@ export const handler = async (event, context) => {
           const result = await db.execute('SELECT * FROM diagrams ORDER BY updated_at DESC');
           return {
             statusCode: 200,
+            headers,
             body: JSON.stringify(result.rows.map(row => ({
               id: row.id,
               name: row.name,
@@ -56,6 +74,7 @@ export const handler = async (event, context) => {
           );
           return {
             statusCode: 200,
+            headers,
             body: JSON.stringify({ id })
           };
         } else {
@@ -66,6 +85,7 @@ export const handler = async (event, context) => {
           );
           return {
             statusCode: 200,
+            headers,
             body: JSON.stringify({ id: newId })
           };
         }
@@ -74,12 +94,14 @@ export const handler = async (event, context) => {
         await db.execute('DELETE FROM diagrams WHERE id = ?', [query.id]);
         return {
           statusCode: 200,
+          headers,
           body: JSON.stringify({ success: true })
         };
 
       default:
         return {
           statusCode: 405,
+          headers,
           body: JSON.stringify({ error: `Method ${method} Not Allowed` })
         };
     }
@@ -87,6 +109,10 @@ export const handler = async (event, context) => {
     console.error(error);
     return {
       statusCode: 500,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      },
       body: JSON.stringify({ error: 'Internal Server Error' })
     };
   }
