@@ -1,113 +1,138 @@
 import { createClient } from '@libsql/client';
 
-export const handler = async (event) => {
-  const client = createClient({
-    url: process.env.DATABASE_URL,
-    authToken: process.env.DATABASE_AUTH_TOKEN
-  });
+const db = createClient({
+  url: process.env.DATABASE_URL || 'file:local.db',
+  authToken: process.env.DATABASE_AUTH_TOKEN
+});
 
-  const headers = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type'
-  };
+// Initialize database
+await db.execute(`
+  CREATE TABLE IF NOT EXISTS diagrams (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    data TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
 
+export const handler = async (event, context) => {
   try {
-    // Initialize database
-    await client.execute(`
-      CREATE TABLE IF NOT EXISTS diagrams (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        data TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+    const { httpMethod: method, queryStringParameters: query, body } = event;
+    const parsedBody = body ? JSON.parse(body) : null;
 
-    if (event.httpMethod === 'OPTIONS') {
+    const headers = {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS'
+    };
+
+    // Handle OPTIONS request for CORS
+    if (method === 'OPTIONS') {
       return {
         statusCode: 204,
         headers
       };
     }
 
-    if (event.httpMethod === 'GET') {
-      if (event.queryStringParameters?.id) {
-        const result = await client.execute({
-          sql: 'SELECT * FROM diagrams WHERE id = ?',
-          args: [event.queryStringParameters.id]
-        });
-
-        if (result.rows.length === 0) {
+    switch (method) {
+      case 'GET':
+        if (query?.id) {
+          const result = await db.execute({
+            sql: 'SELECT * FROM diagrams WHERE id = ?',
+            args: [query.id]
+          });
+          
+          if (result.rows.length === 0) {
+            return {
+              statusCode: 404,
+              headers,
+              body: JSON.stringify({ error: 'Diagram not found' })
+            };
+          }
+          
+          const row = result.rows[0];
           return {
-            statusCode: 404,
+            statusCode: 200,
             headers,
-            body: JSON.stringify({ error: 'Diagram not found' })
+            body: JSON.stringify({
+              id: row.id,
+              name: row.name,
+              data: JSON.parse(row.data),
+              createdAt: row.created_at,
+              updatedAt: row.updated_at
+            })
+          };
+        } else {
+          const result = await db.execute('SELECT * FROM diagrams ORDER BY updated_at DESC');
+          return {
+            statusCode: 200,
+            headers,
+            body: JSON.stringify(result.rows.map(row => ({
+              id: row.id,
+              name: row.name,
+              data: JSON.parse(row.data),
+              createdAt: row.created_at,
+              updatedAt: row.updated_at
+            })))
           };
         }
 
-        const diagram = result.rows[0];
+      case 'POST':
+        const { id, name, data } = parsedBody;
+        const now = new Date().toISOString();
+        
+        if (id) {
+          await db.execute({
+            sql: 'UPDATE diagrams SET name = ?, data = ?, updated_at = ? WHERE id = ?',
+            args: [name, JSON.stringify(data), now, id]
+          });
+          return {
+            statusCode: 200,
+            headers,
+            body: JSON.stringify({ id })
+          };
+        } else {
+          const newId = Math.random().toString(36).substring(2, 15);
+          await db.execute({
+            sql: 'INSERT INTO diagrams (id, name, data) VALUES (?, ?, ?)',
+            args: [newId, name, JSON.stringify(data)]
+          });
+          return {
+            statusCode: 200,
+            headers,
+            body: JSON.stringify({ id: newId })
+          };
+        }
+
+      case 'DELETE':
+        await db.execute({
+          sql: 'DELETE FROM diagrams WHERE id = ?',
+          args: [query.id]
+        });
         return {
           statusCode: 200,
           headers,
-          body: JSON.stringify({
-            id: diagram.id,
-            name: diagram.name,
-            data: JSON.parse(diagram.data)
-          })
+          body: JSON.stringify({ success: true })
         };
-      } else {
-        const result = await client.execute('SELECT id, name FROM diagrams ORDER BY created_at DESC');
+
+      default:
         return {
-          statusCode: 200,
+          statusCode: 405,
           headers,
-          body: JSON.stringify(result.rows)
+          body: JSON.stringify({ error: `Method ${method} Not Allowed` })
         };
-      }
     }
-
-    if (event.httpMethod === 'POST') {
-      const { name, data } = JSON.parse(event.body);
-      const id = Math.random().toString(36).substring(2, 15);
-      
-      await client.execute({
-        sql: 'INSERT INTO diagrams (id, name, data) VALUES (?, ?, ?)',
-        args: [id, name, JSON.stringify(data)]
-      });
-
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ id })
-      };
-    }
-
-    if (event.httpMethod === 'DELETE') {
-      const { id } = event.queryStringParameters;
-      await client.execute({
-        sql: 'DELETE FROM diagrams WHERE id = ?',
-        args: [id]
-      });
-
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ success: true })
-      };
-    }
-
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({ error: 'Method not allowed' })
-    };
   } catch (error) {
-    console.error('API Error:', error);
+    console.error(error);
     return {
       statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Internal server error' })
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      },
+      body: JSON.stringify({ error: 'Internal Server Error' })
     };
   }
 };

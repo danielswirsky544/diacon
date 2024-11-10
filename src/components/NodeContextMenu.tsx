@@ -13,7 +13,9 @@ interface NodeContextMenuProps {
 export default function NodeContextMenu({ nodeId, position, isLeftDiagram, onClose }: NodeContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const { updateNode, deleteNode } = useDiagramStore();
+
   const [showRelationships, setShowRelationships] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -34,35 +36,57 @@ export default function NodeContextMenu({ nodeId, position, isLeftDiagram, onClo
     onClose();
   };
 
+  const convertImageToBase64 = async (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  };
+
   const handlePasteImage = async () => {
+    setIsProcessing(true);
     try {
       const clipboardItems = await navigator.clipboard.read();
       for (const clipboardItem of clipboardItems) {
         for (const type of clipboardItem.types) {
           if (type.startsWith('image/')) {
             const blob = await clipboardItem.getType(type);
-            const imageUrl = URL.createObjectURL(blob);
-            updateNode(nodeId, { imageUrl }, isLeftDiagram);
+            const base64Image = await convertImageToBase64(blob);
+            updateNode(nodeId, { imageData: base64Image }, isLeftDiagram);
             break;
           }
         }
       }
     } catch (err) {
+      console.error('Failed to paste image:', err);
       alert('Please copy an image to your clipboard first!');
+    } finally {
+      setIsProcessing(false);
+      onClose();
     }
-    onClose();
   };
 
-  const handleEditImage = () => {
-    const newImageUrl = prompt('Enter image URL:');
-    if (newImageUrl) {
-      updateNode(nodeId, { imageUrl: newImageUrl }, isLeftDiagram);
+  const handleUploadImage = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsProcessing(true);
+    try {
+      const base64Image = await convertImageToBase64(file);
+      updateNode(nodeId, { imageData: base64Image }, isLeftDiagram);
+    } catch (err) {
+      console.error('Failed to upload image:', err);
+      alert('Failed to process image. Please try again.');
+    } finally {
+      setIsProcessing(false);
+      onClose();
     }
-    onClose();
   };
 
   const handleRemoveImage = () => {
-    updateNode(nodeId, { imageUrl: undefined }, isLeftDiagram);
+    updateNode(nodeId, { imageData: undefined }, isLeftDiagram);
     onClose();
   };
 
@@ -104,17 +128,22 @@ export default function NodeContextMenu({ nodeId, position, isLeftDiagram, onClo
       <button
         className="w-full px-4 py-2 text-left hover:bg-gray-100 flex items-center gap-2"
         onClick={handlePasteImage}
+        disabled={isProcessing}
       >
         <Clipboard className="w-4 h-4" />
         Paste Image from Clipboard
       </button>
-      <button
-        className="w-full px-4 py-2 text-left hover:bg-gray-100 flex items-center gap-2"
-        onClick={handleEditImage}
-      >
+      <label className="w-full px-4 py-2 text-left hover:bg-gray-100 flex items-center gap-2 cursor-pointer">
         <Image className="w-4 h-4" />
-        Enter Image URL
-      </button>
+        Upload Image
+        <input
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleUploadImage}
+          disabled={isProcessing}
+        />
+      </label>
       <button
         className="w-full px-4 py-2 text-left hover:bg-gray-100 flex items-center gap-2"
         onClick={handleRemoveImage}

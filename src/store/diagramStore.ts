@@ -11,85 +11,93 @@ import {
   applyEdgeChanges,
 } from 'reactflow';
 
+interface NodeData {
+  label: string;
+  imageData?: string;
+  isHighlighted?: boolean;
+}
+
+interface DiagramNode extends Node {
+  data: NodeData;
+}
+
 interface DiagramData {
-  leftNodes: Node[];
-  rightNodes: Node[];
+  leftNodes: DiagramNode[];
+  rightNodes: DiagramNode[];
   leftEdges: Edge[];
   rightEdges: Edge[];
   nodeRelations: Record<string, string[]>;
 }
 
 interface DiagramState extends DiagramData {
-  highlightedNodes: string[];
   currentDiagramName: string;
-  savedDiagrams: Array<{ id: string; name: string }>;
   isLoading: boolean;
-  error: string | null;
   onNodesChange: (changes: NodeChange[], isLeftDiagram: boolean) => void;
   onEdgesChange: (changes: EdgeChange[], isLeftDiagram: boolean) => void;
   onConnect: (connection: Connection, isLeftDiagram: boolean) => void;
   setHighlightedNodes: (nodeIds: string[]) => void;
-  addNode: (node: Node, isLeftDiagram: boolean) => void;
-  updateNode: (nodeId: string, data: Partial<{ label: string; imageUrl?: string }>, isLeftDiagram: boolean) => void;
+  addNode: (node: DiagramNode, isLeftDiagram: boolean) => void;
+  updateNode: (nodeId: string, data: Partial<NodeData>, isLeftDiagram: boolean) => void;
   deleteNode: (nodeId: string, isLeftDiagram: boolean) => void;
   updateNodeRelations: (sourceId: string, targetId: string) => void;
   saveDiagram: (name: string) => Promise<string>;
   loadDiagram: (id: string) => Promise<void>;
-  loadAllDiagrams: () => Promise<void>;
   deleteDiagram: (id: string) => Promise<void>;
-  clearError: () => void;
   exportDiagram: () => DiagramData;
   importDiagram: (data: DiagramData) => void;
 }
 
-const initialState: DiagramData = {
-  leftNodes: [
-    {
-      id: 'l1',
-      type: 'custom',
-      position: { x: 100, y: 100 },
-      data: { label: 'Process 1' },
-    },
-    {
-      id: 'l2',
-      type: 'custom',
-      position: { x: 100, y: 300 },
-      data: { label: 'Process 2' },
-    },
-  ],
-  rightNodes: [
-    {
-      id: 'r1',
-      type: 'custom',
-      position: { x: 100, y: 100 },
-      data: { label: 'Task 1' },
-    },
-    {
-      id: 'r2',
-      type: 'custom',
-      position: { x: 100, y: 300 },
-      data: { label: 'Task 2' },
-    },
-  ],
-  leftEdges: [],
-  rightEdges: [],
-  nodeRelations: {
-    l1: ['r1'],
-    l2: ['r2'],
-    r1: ['l1'],
-    r2: ['l2'],
+const initialLeftNodes: DiagramNode[] = [
+  {
+    id: 'l1',
+    type: 'custom',
+    position: { x: 0, y: 0 },
+    data: { label: 'Process 1' },
   },
+  {
+    id: 'l2',
+    type: 'custom',
+    position: { x: 0, y: 200 },
+    data: { label: 'Process 2' },
+  },
+];
+
+const initialRightNodes: DiagramNode[] = [
+  {
+    id: 'r1',
+    type: 'custom',
+    position: { x: 0, y: 0 },
+    data: { label: 'Task 1' },
+  },
+  {
+    id: 'r2',
+    type: 'custom',
+    position: { x: 0, y: 200 },
+    data: { label: 'Task 2' },
+  },
+];
+
+const initialNodeRelations: Record<string, string[]> = {
+  l1: ['r1'],
+  l2: ['r1', 'r2'],
+  r1: ['l1', 'l2'],
+  r2: ['l2'],
 };
 
 export const useDiagramStore = create<DiagramState>()(
   persist(
     (set, get) => ({
-      ...initialState,
-      highlightedNodes: [],
-      currentDiagramName: 'Untitled Diagram',
-      savedDiagrams: [],
+      leftNodes: initialLeftNodes,
+      rightNodes: initialRightNodes,
+      leftEdges: [
+        { id: 'e1-2', source: 'l1', target: 'l2', type: 'smoothstep', animated: true }
+      ],
+      rightEdges: [
+        { id: 'e1-2', source: 'r1', target: 'r2', type: 'smoothstep', animated: true }
+      ],
+      nodeRelations: initialNodeRelations,
+      currentDiagramName: '',
       isLoading: false,
-      error: null,
 
       onNodesChange: (changes, isLeftDiagram) => {
         set({
@@ -126,10 +134,6 @@ export const useDiagramStore = create<DiagramState>()(
         });
       },
 
-      setHighlightedNodes: (nodeIds) => {
-        set({ highlightedNodes: nodeIds });
-      },
-
       addNode: (node, isLeftDiagram) => {
         const nodes = isLeftDiagram ? get().leftNodes : get().rightNodes;
         set({
@@ -157,25 +161,29 @@ export const useDiagramStore = create<DiagramState>()(
         const nodes = isLeftDiagram ? get().leftNodes : get().rightNodes;
         const edges = isLeftDiagram ? get().leftEdges : get().rightEdges;
         
+        // Remove node
         const updatedNodes = nodes.filter(node => node.id !== nodeId);
+        
+        // Remove connected edges
         const updatedEdges = edges.filter(
           edge => edge.source !== nodeId && edge.target !== nodeId
         );
-
-        const relations = { ...get().nodeRelations };
-        delete relations[nodeId];
-        Object.keys(relations).forEach(key => {
-          relations[key] = relations[key].filter(id => id !== nodeId);
+        
+        // Remove from relations
+        const updatedRelations = { ...get().nodeRelations };
+        delete updatedRelations[nodeId];
+        Object.keys(updatedRelations).forEach(key => {
+          updatedRelations[key] = updatedRelations[key].filter(id => id !== nodeId);
         });
 
         set({
           [isLeftDiagram ? 'leftNodes' : 'rightNodes']: updatedNodes,
           [isLeftDiagram ? 'leftEdges' : 'rightEdges']: updatedEdges,
-          nodeRelations: relations,
+          nodeRelations: updatedRelations,
         });
       },
 
-      updateNodeRelations: (sourceId, targetId) => {
+      updateNodeRelations: (sourceId: string, targetId: string) => {
         const relations = { ...get().nodeRelations };
         if (!relations[sourceId]) relations[sourceId] = [];
         if (!relations[targetId]) relations[targetId] = [];
@@ -190,100 +198,78 @@ export const useDiagramStore = create<DiagramState>()(
         set({ nodeRelations: relations });
       },
 
-      saveDiagram: async (name) => {
-        set({ isLoading: true, error: null });
-        try {
-          const state = get();
-          const diagramData: DiagramData = {
-            leftNodes: state.leftNodes,
-            rightNodes: state.rightNodes,
-            leftEdges: state.leftEdges,
-            rightEdges: state.rightEdges,
-            nodeRelations: state.nodeRelations,
-          };
+      setHighlightedNodes: (nodeIds) => {
+        const leftNodes = get().leftNodes.map(node => ({
+          ...node,
+          data: { ...node.data, isHighlighted: nodeIds.includes(node.id) },
+        }));
+        
+        const rightNodes = get().rightNodes.map(node => ({
+          ...node,
+          data: { ...node.data, isHighlighted: nodeIds.includes(node.id) },
+        }));
 
+        set({ leftNodes, rightNodes });
+      },
+
+      saveDiagram: async (name: string) => {
+        const state = get();
+        const diagramData = {
+          leftNodes: state.leftNodes,
+          rightNodes: state.rightNodes,
+          leftEdges: state.leftEdges,
+          rightEdges: state.rightEdges,
+          nodeRelations: state.nodeRelations,
+        };
+
+        try {
           const response = await fetch('/api/diagrams', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name,
-              data: diagramData,
-            }),
+            body: JSON.stringify({ name, data: diagramData }),
           });
 
-          if (!response.ok) {
-            throw new Error('Failed to save diagram');
-          }
-
+          if (!response.ok) throw new Error('Failed to save diagram');
+          
           const { id } = await response.json();
           set({ currentDiagramName: name });
-          await get().loadAllDiagrams();
           return id;
         } catch (error) {
-          set({ error: 'Failed to save diagram' });
+          console.error('Failed to save diagram:', error);
           throw error;
-        } finally {
-          set({ isLoading: false });
         }
       },
 
-      loadDiagram: async (id) => {
-        set({ isLoading: true, error: null });
+      loadDiagram: async (id: string) => {
+        set({ isLoading: true });
         try {
           const response = await fetch(`/api/diagrams/${id}`);
-          if (!response.ok) {
-            throw new Error('Failed to load diagram');
-          }
-
+          if (!response.ok) throw new Error('Failed to load diagram');
+          
           const { name, data } = await response.json();
           set({
             ...data,
             currentDiagramName: name,
           });
         } catch (error) {
-          set({ error: 'Failed to load diagram' });
+          console.error('Failed to load diagram:', error);
           throw error;
         } finally {
           set({ isLoading: false });
         }
       },
 
-      loadAllDiagrams: async () => {
-        set({ isLoading: true, error: null });
-        try {
-          const response = await fetch('/api/diagrams');
-          if (!response.ok) {
-            throw new Error('Failed to load diagrams');
-          }
-          const diagrams = await response.json();
-          set({ savedDiagrams: diagrams });
-        } catch (error) {
-          console.error('Failed to load diagrams:', error);
-          set({ error: 'Failed to load diagrams', savedDiagrams: [] });
-        } finally {
-          set({ isLoading: false });
-        }
-      },
-
-      deleteDiagram: async (id) => {
-        set({ isLoading: true, error: null });
+      deleteDiagram: async (id: string) => {
         try {
           const response = await fetch(`/api/diagrams/${id}`, {
             method: 'DELETE',
           });
-          if (!response.ok) {
-            throw new Error('Failed to delete diagram');
-          }
-          await get().loadAllDiagrams();
+          if (!response.ok) throw new Error('Failed to delete diagram');
         } catch (error) {
-          set({ error: 'Failed to delete diagram' });
+          console.error('Failed to delete diagram:', error);
           throw error;
-        } finally {
-          set({ isLoading: false });
         }
       },
-
-      clearError: () => set({ error: null }),
 
       exportDiagram: () => {
         const state = get();
@@ -299,8 +285,7 @@ export const useDiagramStore = create<DiagramState>()(
       importDiagram: (data: DiagramData) => {
         set({
           ...data,
-          highlightedNodes: [],
-          currentDiagramName: 'Imported Diagram',
+          currentDiagramName: '',
         });
       },
     }),

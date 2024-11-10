@@ -4,12 +4,12 @@ import NodeContextMenu from './NodeContextMenu';
 
 interface CustomNodeData {
   label: string;
-  imageUrl?: string;
+  imageData?: string;
   isHighlighted: boolean;
 }
 
 function CustomNode({ id, data, isConnectable, selected }: NodeProps<CustomNodeData>) {
-  const { label, imageUrl, isHighlighted } = data;
+  const { label, imageData, isHighlighted } = data;
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const handleContextMenu = useCallback(
@@ -45,9 +45,9 @@ function CustomNode({ id, data, isConnectable, selected }: NodeProps<CustomNodeD
           className="w-2 h-2"
           isConnectable={isConnectable}
         />
-        {imageUrl ? (
+        {imageData ? (
           <img
-            src={imageUrl}
+            src={imageData}
             alt={label}
             className="w-full h-full object-contain"
           />
