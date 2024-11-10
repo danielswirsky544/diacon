@@ -2,6 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
 .react-flow__node {
   @apply select-none;
 }
@@ -12,4 +20,28 @@
 
 .react-flow__node:hover .react-flow__handle {
   @apply opacity-100;
+}
+
+.react-flow__edge {
+  @apply !stroke-2;
+}
+
+.react-flow__edge.animated {
+  @apply !stroke-blue-500;
+}
+
+.react-flow__edge.highlighted {
+  @apply !stroke-purple-500;
+}
+
+.react-flow__controls {
+  @apply !bg-white !shadow-lg !rounded-lg !border-none;
+}
+
+.react-flow__controls-button {
+  @apply !border-gray-100 !bg-white hover:!bg-gray-50;
+}
+
+.react-flow__attribution {
+  @apply !bg-transparent;
 }

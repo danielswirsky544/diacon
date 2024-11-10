@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { createClient } from '@libsql/client';
 import {
   Connection,
   Edge,
@@ -18,74 +17,74 @@ interface DiagramState {
   leftEdges: Edge[];
   rightEdges: Edge[];
   nodeRelations: Record<string, string[]>;
-  highlightedNodes: Set<string>;
+  highlightedNodes: string[];
+  currentDiagramName: string;
+  savedDiagrams: Array<{ id: string; name: string }>;
+  isLoading: boolean;
+  error: string | null;
   onNodesChange: (changes: NodeChange[], isLeftDiagram: boolean) => void;
   onEdgesChange: (changes: EdgeChange[], isLeftDiagram: boolean) => void;
   onConnect: (connection: Connection, isLeftDiagram: boolean) => void;
   setHighlightedNodes: (nodeIds: string[]) => void;
   addNode: (node: Node, isLeftDiagram: boolean) => void;
   updateNode: (nodeId: string, data: Partial<{ label: string; imageUrl?: string }>, isLeftDiagram: boolean) => void;
+  deleteNode: (nodeId: string, isLeftDiagram: boolean) => void;
   updateNodeRelations: (sourceId: string, targetId: string) => void;
-  saveDiagram: (name: string) => Promise<void>;
+  saveDiagram: (name: string) => Promise<string>;
   loadDiagram: (id: string) => Promise<void>;
-  loadDiagrams: () => Promise<{ id: string; name: string }[]>;
+  loadAllDiagrams: () => Promise<void>;
+  deleteDiagram: (id: string) => Promise<void>;
+  clearError: () => void;
 }
 
-const client = createClient({
-  url: import.meta.env.VITE_DATABASE_URL || '',
-  authToken: import.meta.env.VITE_DATABASE_AUTH_TOKEN || '',
-});
-
-const initialLeftNodes: Node[] = [
-  {
-    id: 'l1',
-    type: 'custom',
-    position: { x: 0, y: 0 },
-    data: { label: 'Process 1' },
+const initialState = {
+  leftNodes: [
+    {
+      id: 'l1',
+      type: 'custom',
+      position: { x: 100, y: 100 },
+      data: { label: 'Process 1' },
+    },
+    {
+      id: 'l2',
+      type: 'custom',
+      position: { x: 100, y: 300 },
+      data: { label: 'Process 2' },
+    },
+  ],
+  rightNodes: [
+    {
+      id: 'r1',
+      type: 'custom',
+      position: { x: 100, y: 100 },
+      data: { label: 'Task 1' },
+    },
+    {
+      id: 'r2',
+      type: 'custom',
+      position: { x: 100, y: 300 },
+      data: { label: 'Task 2' },
+    },
+  ],
+  leftEdges: [],
+  rightEdges: [],
+  nodeRelations: {
+    l1: ['r1'],
+    l2: ['r2'],
+    r1: ['l1'],
+    r2: ['l2'],
   },
-  {
-    id: 'l2',
-    type: 'custom',
-    position: { x: 0, y: 200 },
-    data: { label: 'Process 2' },
-  },
-];
-
-const initialRightNodes: Node[] = [
-  {
-    id: 'r1',
-    type: 'custom',
-    position: { x: 0, y: 0 },
-    data: { label: 'Task 1' },
-  },
-  {
-    id: 'r2',
-    type: 'custom',
-    position: { x: 0, y: 200 },
-    data: { label: 'Task 2' },
-  },
-];
-
-const initialNodeRelations: Record<string, string[]> = {
-  l1: ['r1'],
-  l2: ['r1', 'r2'],
-  r1: ['l1', 'l2'],
-  r2: ['l2'],
+  highlightedNodes: [],
+  currentDiagramName: 'Untitled Diagram',
+  savedDiagrams: [],
+  isLoading: false,
+  error: null,
 };
 
 export const useDiagramStore = create<DiagramState>()(
   persist(
     (set, get) => ({
-      leftNodes: initialLeftNodes,
-      rightNodes: initialRightNodes,
-      leftEdges: [
-        { id: 'e1-2', source: 'l1', target: 'l2', type: 'smoothstep', animated: true }
-      ],
-      rightEdges: [
-        { id: 'e1-2', source: 'r1', target: 'r2', type: 'smoothstep', animated: true }
-      ],
-      nodeRelations: initialNodeRelations,
-      highlightedNodes: new Set<string>(),
+      ...initialState,
 
       onNodesChange: (changes, isLeftDiagram) => {
         set({
@@ -122,6 +121,10 @@ export const useDiagramStore = create<DiagramState>()(
         });
       },
 
+      setHighlightedNodes: (nodeIds) => {
+        set({ highlightedNodes: nodeIds });
+      },
+
       addNode: (node, isLeftDiagram) => {
         const nodes = isLeftDiagram ? get().leftNodes : get().rightNodes;
         set({
@@ -145,7 +148,29 @@ export const useDiagramStore = create<DiagramState>()(
         });
       },
 
-      updateNodeRelations: (sourceId: string, targetId: string) => {
+      deleteNode: (nodeId, isLeftDiagram) => {
+        const nodes = isLeftDiagram ? get().leftNodes : get().rightNodes;
+        const edges = isLeftDiagram ? get().leftEdges : get().rightEdges;
+        
+        const updatedNodes = nodes.filter(node => node.id !== nodeId);
+        const updatedEdges = edges.filter(
+          edge => edge.source !== nodeId && edge.target !== nodeId
+        );
+
+        const relations = { ...get().nodeRelations };
+        delete relations[nodeId];
+        Object.keys(relations).forEach(key => {
+          relations[key] = relations[key].filter(id => id !== nodeId);
+        });
+
+        set({
+          [isLeftDiagram ? 'leftNodes' : 'rightNodes']: updatedNodes,
+          [isLeftDiagram ? 'leftEdges' : 'rightEdges']: updatedEdges,
+          nodeRelations: relations,
+        });
+      },
+
+      updateNodeRelations: (sourceId, targetId) => {
         const relations = { ...get().nodeRelations };
         if (!relations[sourceId]) relations[sourceId] = [];
         if (!relations[targetId]) relations[targetId] = [];
@@ -160,68 +185,98 @@ export const useDiagramStore = create<DiagramState>()(
         set({ nodeRelations: relations });
       },
 
-      setHighlightedNodes: (nodeIds) => {
-        set({ highlightedNodes: new Set(nodeIds) });
-      },
-
-      saveDiagram: async (name: string) => {
-        const state = get();
-        const diagramData = {
-          leftNodes: state.leftNodes,
-          rightNodes: state.rightNodes,
-          leftEdges: state.leftEdges,
-          rightEdges: state.rightEdges,
-          nodeRelations: state.nodeRelations,
-        };
-
+      saveDiagram: async (name) => {
+        set({ isLoading: true, error: null });
         try {
-          await client.execute({
-            sql: `INSERT INTO diagrams (name, data) VALUES (?, ?)`,
-            args: [name, JSON.stringify(diagramData)],
-          });
-        } catch (error) {
-          console.error('Failed to save diagram:', error);
-          throw error;
-        }
-      },
-
-      loadDiagram: async (id: string) => {
-        try {
-          const result = await client.execute({
-            sql: `SELECT data FROM diagrams WHERE id = ?`,
-            args: [id],
+          const state = get();
+          const response = await fetch('/api/diagrams', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name,
+              data: {
+                leftNodes: state.leftNodes,
+                rightNodes: state.rightNodes,
+                leftEdges: state.leftEdges,
+                rightEdges: state.rightEdges,
+                nodeRelations: state.nodeRelations,
+              },
+            }),
           });
 
-          if (result.rows[0]) {
-            const data = JSON.parse(result.rows[0].data as string);
-            set({
-              leftNodes: data.leftNodes,
-              rightNodes: data.rightNodes,
-              leftEdges: data.leftEdges,
-              rightEdges: data.rightEdges,
-              nodeRelations: data.nodeRelations,
-            });
+          if (!response.ok) {
+            throw new Error('Failed to save diagram');
           }
+
+          const { id } = await response.json();
+          set({ currentDiagramName: name });
+          await get().loadAllDiagrams();
+          return id;
         } catch (error) {
-          console.error('Failed to load diagram:', error);
+          set({ error: 'Failed to save diagram' });
           throw error;
+        } finally {
+          set({ isLoading: false });
         }
       },
 
-      loadDiagrams: async () => {
+      loadDiagram: async (id) => {
+        set({ isLoading: true, error: null });
         try {
-          const result = await client.execute({
-            sql: `SELECT id, name FROM diagrams ORDER BY created_at DESC`,
+          const response = await fetch(`/api/diagrams/${id}`);
+          if (!response.ok) {
+            throw new Error('Failed to load diagram');
+          }
+
+          const { name, data } = await response.json();
+          set({
+            ...data,
+            currentDiagramName: name,
           });
-          return result.rows.map(row => ({
-            id: row.id as string,
-            name: row.name as string,
-          }));
         } catch (error) {
-          console.error('Failed to load diagrams:', error);
+          set({ error: 'Failed to load diagram' });
           throw error;
+        } finally {
+          set({ isLoading: false });
         }
       },
+
+      loadAllDiagrams: async () => {
+        set({ isLoading: true, error: null });
+        try {
+          const response = await fetch('/api/diagrams');
+          if (!response.ok) {
+            throw new Error('Failed to load diagrams');
+          }
+          const diagrams = await response.json();
+          set({ savedDiagrams: diagrams });
+        } catch (error) {
+          set({ error: 'Failed to load diagrams' });
+          throw error;
+        } finally {
+          set({ isLoading: false });
+        }
+      },
+
+      deleteDiagram: async (id) => {
+        set({ isLoading: true, error: null });
+        try {
+          const response = await fetch(`/api/diagrams/${id}`, {
+            method: 'DELETE',
+          });
+          if (!response.ok) {
+            throw new Error('Failed to delete diagram');
+          }
+          await get().loadAllDiagrams();
+        } catch (error) {
+          set({ error: 'Failed to delete diagram' });
+          throw error;
+        } finally {
+          set({ isLoading: false });
+        }
+      },
+
+      clearError: () => set({ error: null }),
     }),
     {
       name: 'diagram-storage',
@@ -231,6 +286,7 @@ export const useDiagramStore = create<DiagramState>()(
         leftEdges: state.leftEdges,
         rightEdges: state.rightEdges,
         nodeRelations: state.nodeRelations,
+        currentDiagramName: state.currentDiagramName,
       }),
     }
   )

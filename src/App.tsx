@@ -1,7 +1,7 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { ReactFlowProvider } from 'reactflow';
 import DiagramCanvas from './components/DiagramCanvas';
-import DiagramControls from './components/DiagramControls';
+import SaveControls from './components/SaveControls';
 import { useDiagramStore } from './store/diagramStore';
 import 'reactflow/dist/style.css';
 
@@ -17,17 +17,7 @@ function App() {
     onEdgesChange,
     onConnect,
     setHighlightedNodes,
-    loadDiagram,
-    currentDiagramName,
   } = useDiagramStore();
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const diagramId = params.get('diagram');
-    if (diagramId) {
-      loadDiagram(diagramId);
-    }
-  }, [loadDiagram]);
 
   const handleNodeHover = (nodeId: string | null) => {
     if (!nodeId) {
@@ -44,9 +34,9 @@ function App() {
       <div className="container mx-auto px-4 py-8">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold text-gray-800">
-            {currentDiagramName}
+            Interactive Dual Flow Diagram
           </h1>
-          <DiagramControls />
+          <SaveControls />
         </div>
         
         <div className="grid grid-cols-2 gap-8 h-[800px]">
@@ -61,7 +51,7 @@ function App() {
                   onEdgesChange={(changes) => onEdgesChange(changes, true)}
                   onConnect={(connection) => onConnect(connection, true)}
                   onNodeHover={handleNodeHover}
-                  highlightedNodes={highlightedNodes}
+                  highlightedNodes={new Set(highlightedNodes)}
                   isLeftDiagram={true}
                 />
               </div>
@@ -79,7 +69,7 @@ function App() {
                   onEdgesChange={(changes) => onEdgesChange(changes, false)}
                   onConnect={(connection) => onConnect(connection, false)}
                   onNodeHover={handleNodeHover}
-                  highlightedNodes={highlightedNodes}
+                  highlightedNodes={new Set(highlightedNodes)}
                   isLeftDiagram={false}
                 />
               </div>
